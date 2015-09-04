@@ -3,7 +3,7 @@ package com.tropo.webapp;
 /**
  * This is a result class
  * this is just to learn merge tool
- * i have done some changes in local again
+ * i have done some changes in remote again
  */ 
 import com.voxeo.tropo.TropoResult;
 
