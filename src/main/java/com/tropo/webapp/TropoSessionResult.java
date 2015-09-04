@@ -1,5 +1,9 @@
 package com.tropo.webapp;
 
+/**
+ * This is a result class
+ * 
+ * /
 import com.voxeo.tropo.TropoResult;
 
 public class TropoSessionResult {
