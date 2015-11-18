@@ -5,6 +5,7 @@ import static com.voxeo.tropo.Key.BARGEIN;
 import static com.voxeo.tropo.Key.EMAIL_FORMAT;
 import static com.voxeo.tropo.Key.EVENT;
 import static com.voxeo.tropo.Key.ID;
+import static com.voxeo.tropo.Key.MAX_SILENCE;
 import static com.voxeo.tropo.Key.MODE;
 import static com.voxeo.tropo.Key.NAME;
 import static com.voxeo.tropo.Key.NEXT;
@@ -12,6 +13,7 @@ import static com.voxeo.tropo.Key.TERMINATOR;
 import static com.voxeo.tropo.Key.TIMEOUT;
 import static com.voxeo.tropo.Key.URL;
 import static com.voxeo.tropo.Key.VALUE;
+import static com.voxeo.tropo.Key.createKey;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -84,29 +86,7 @@ public class Controller {
     @Path("download")
     public Response download() {
     
-        Tropo tropo = new Tropo();
-        
-        tropo.on("continue", "/continue").say("your message has been sent, thank you");
-        
-        tropo.on("incomplete", "/incomplete").say("record unsuccessful, please try again");
-        
-        tropo.on("hangup", "/hangup").say("event hangup occured");
-        
-        tropo.on("error", "/error").say("event error occured");
-        
-        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"));
-        
-        recordAction.and(Do.say(
-                VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound")).say(
-                VALUE("didn't hear anything, call again"), EVENT("timeout")));
-        
-        recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
-        recordAction.choices(TERMINATOR("#"));
-        
-        System.out.println("******text***********");
-        System.out.println(tropo.text());
-        
-        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.status(200).entity(formSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -117,6 +97,7 @@ public class Controller {
         System.out.println("******result***********");
         System.out.println(sessionResult);
         Tropo tropo = new Tropo();
+        tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
@@ -129,6 +110,7 @@ public class Controller {
         System.out.println(sessionResult);
         
         Tropo tropo = new Tropo();
+        tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
@@ -141,7 +123,6 @@ public class Controller {
         System.out.println(sessionResult);
         
         Tropo tropo = new Tropo();
-        tropo.say("record hangup");
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -155,7 +136,6 @@ public class Controller {
         System.out.println(sessionResult);
         
         Tropo tropo = new Tropo();
-        tropo.say("record error");
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -281,6 +261,34 @@ public class Controller {
             }
         }
         
+    }
+    
+    private String formSampleBody() {
+    
+        Tropo tropo = new Tropo();
+        
+        tropo.on("continue", "/continue").say("your message has been sent, thank you");
+        
+        tropo.on("incomplete", "/incomplete").say("record unsuccessful, please try again");
+        
+        tropo.on("hangup", "/hangup").say("event hangup occured");
+        
+        tropo.on("error", "/error").say("event error occured");
+        
+        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(10.0f),
+                createKey("maxTime", 60.0f));
+        
+        recordAction.and(Do.say(
+                VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound")).say(
+                VALUE("didn't hear anything, call again"), EVENT("timeout")));
+        
+        recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
+        recordAction.choices(TERMINATOR("#"));
+        
+        System.out.println("******text***********");
+        System.out.println(tropo.text());
+        
+        return tropo.text();
     }
     
 }
