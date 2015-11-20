@@ -22,11 +22,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Enumeration;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
@@ -41,6 +43,7 @@ import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
 import com.cisco.wx2.email.EmailHandler;
 import com.voxeo.tropo.Tropo;
+import com.voxeo.tropo.actions.AskAction;
 import com.voxeo.tropo.actions.Do;
 import com.voxeo.tropo.actions.RecordAction;
 import com.voxeo.tropo.enums.Mode;
@@ -51,6 +54,9 @@ public class Controller {
     @Context
     UriInfo info;
     
+    @Context
+    HttpServletRequest request;
+    
     private static final int DEFAULT_BUFFER_SIZE = 10240;
     
     public static int flag = 1;
@@ -59,8 +65,7 @@ public class Controller {
     
     public static String upload;
     
-    @Context
-    HttpServletRequest request;
+    private static File attachment;
     
     @POST
     @Path("record")
@@ -69,7 +74,7 @@ public class Controller {
         System.out.println("*****session*****");
         System.out.println(session);
         
-        return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.status(200).entity(formRecordSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -86,7 +91,7 @@ public class Controller {
     @Path("download")
     public Response download() {
     
-        return Response.status(200).entity(formSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.status(200).entity(formAskSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -96,9 +101,8 @@ public class Controller {
     
         System.out.println("******result***********");
         System.out.println(sessionResult);
-        Tropo tropo = new Tropo();
-        tropo.hangup();
-        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        
+        return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -155,16 +159,14 @@ public class Controller {
             System.out.println("*******process exception************");
             e.printStackTrace();
         }
-        Tropo tropo = new Tropo();
-        tropo.say("recording dumped and email sent successfully");
-        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.ok().build();
         
     }
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
     
         String fileName = fileDetail.getFileName();
-        System.out.println("*******fileName: " + fileName);
+        
         String prefix = fileName;
         String suffix = "";
         if (fileName.contains(".")) {
@@ -172,9 +174,9 @@ public class Controller {
             suffix = fileName.substring(fileName.lastIndexOf('.'));
         }
         
-        File file = File.createTempFile(recording++ + "recording-" + prefix, suffix);
+        attachment = File.createTempFile(recording++ + "recording-" + prefix, suffix);
         
-        try (OutputStream out = new BufferedOutputStream(new FileOutputStream(file), DEFAULT_BUFFER_SIZE)) {
+        try (OutputStream out = new BufferedOutputStream(new FileOutputStream(attachment), DEFAULT_BUFFER_SIZE)) {
             
             byte buffer[] = new byte[DEFAULT_BUFFER_SIZE];
             
@@ -183,67 +185,65 @@ public class Controller {
             }
             
         }
-        sendMail(file);
-        file.delete();
+        System.out.println("*******fileName: " + attachment.getName());
         
     }
     
     @POST
-    @Path("mail")
-    public Response mail() throws EmailEngineException {
+    @Path("sendmail")
+    public Response sendMail(TropoSessionResult sessionResultBean, @QueryParam("hangup") String hangup) throws EmailEngineException {
     
-        sendMail(null);
-        
-        return Response.ok().build();
-    }
-    
-    private void sendMail(File attachment) throws EmailEngineException {
-    
-        String to = "pratapat@cisco.com";
-        String cc1 = "ataggarw@cisco.com";
-        String cc2 = "hemantsonu20@gmail.com";
-        String from = "abhibane@cisco.com";
-        String subject = "You got a voicemail";
-        String textBody = "Someone left a message for you, please find recording in attachment";
-        
-        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new SimpleEmailEngineConfig()).build();
-        EmailHandler handler = factory.newEmailHandler("admin");
-        Email email = new Email();
-        email.setSender(from);
-        email.addRecipient(to);
-        email.addCcRecipient(cc1);
-        email.addCcRecipient(cc2);
-        email.setSubject(subject);
-        email.setTextContent(textBody);
-        if (null != attachment) {
-            email.addAttachment(attachment);
-        }
-        
-        String smtpId = handler.send(email);
-        System.out.println("email sent, smtp id: " + smtpId);
-        
-    }
-    
-    @POST
-    @Path("tropoask")
-    public Response getTropo(TropoSessionBean session) {
-    
-        System.out.println("*****session*****");
-        System.out.println(session);
+        System.out.println("******result***********");
+        System.out.println(sessionResultBean);
         
         Tropo tropo = new Tropo();
-        tropo.say("Welcome to our company. Please enter the number of the department you wish to be forwarded to:");
-        tropo.ask(NAME("userChoice"), BARGEIN(true), MODE(Mode.DTMF), TIMEOUT(10f), ATTEMPTS(2)).and(
-                Do.say(VALUE("Sorry, I didn't hear anything"), EVENT("timeout")).say(
-                        "Press #1 for Customer Support. Press #2 for sales. Press #3 for emergencies. Press #4 for any other thing."),
-                Do.choices(VALUE("[1 DIGIT]")));
-        tropo.on(EVENT("continue"), NEXT("asksuccess"));
-        tropo.on(EVENT("incomplete"), NEXT("askfailure"));
+        if (null == attachment) {
+            tropo.say("recording not received for some reason, please try again");
+            return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        }
         
-        System.out.println("******text***********");
-        System.out.println(tropo.text());
+        Map<String, Object> result = sessionResultBean.getResult();
         
+        Boolean isComplete = (Boolean) result.get("complete");
+        
+        if (!isComplete) {
+            tropo.say("didn't get any input, please try again");
+            return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+            
+        }
+        
+        if (hangup != null && "true".equals(hangup)) {
+            sendMail();
+            tropo.say("your message has been sent, thank you");
+            return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        }
+        
+        String dtmfInput = "";
+        Map<String, Object> action = (Map<String, Object>) result.get("actions");
+        
+        if ("record-input".equals((String) action.get("name"))) {
+            dtmfInput = (String) action.get("value");
+        }
+        
+        switch (dtmfInput) {
+        
+            case "4":
+                tropo.say("message discarded");
+                break;
+            
+            case "#":
+                sendMail();
+                tropo.say("your message has been sent, thank you");
+                break;
+            
+            default:
+                tropo.say("invalid input, message discarded");
+                break;
+        }
+        
+        attachment.delete();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        
     }
     
     private void printHeaders() {
@@ -263,32 +263,77 @@ public class Controller {
         
     }
     
-    private String formSampleBody() {
+    private String formRecordSampleBody() {
     
         Tropo tropo = new Tropo();
         
-        tropo.on("continue", "/continue").say("your message has been sent, thank you");
+        tropo.on("continue", "/continue");
         
-        tropo.on("incomplete", "/incomplete").say("record unsuccessful, please try again");
+        tropo.on("incomplete", "/incomplete").say("record unsuccessful, please try again...");
         
         tropo.on("hangup", "/hangup").say("event hangup occured");
         
         tropo.on("error", "/error").say("event error occured");
         
-        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(10.0f),
-                createKey("maxTime", 60.0f));
+        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(5.0f),
+                createKey("maxTime", 60.0f), ATTEMPTS(2), TIMEOUT(10.0f));
         
-        recordAction.and(Do.say(
-                VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound")).say(
-                VALUE("didn't hear anything, call again"), EVENT("timeout")));
+        recordAction.and(Do.say(VALUE("didn't hear anything, please try again..."), EVENT("timeout")).say(
+                VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound...")));
         
         recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("#"));
         
-        System.out.println("******text***********");
-        System.out.println(tropo.text());
+        return tropo.text();
+    }
+    
+    private String formAskSampleBody() {
+    
+        Tropo tropo = new Tropo();
+        
+        tropo.on(EVENT("continue"), NEXT("/sendmail"));
+        
+        tropo.on("incomplete", "/incomplete").say("no valid input found, discarding the message...");
+        
+        tropo.on("hangup", "/sendmail?hangup=true").say("event hangup occured");
+        
+        tropo.on("error", "/error").say("event error occured");
+        
+        AskAction askAction = tropo.ask(NAME("record-input"), BARGEIN(false), ATTEMPTS(2), TIMEOUT(10.0f));
+        
+        askAction.and(Do.say(VALUE("no input, please try again..."), EVENT("timeout"))
+                .say(VALUE("invalid input, please try again..."), EVENT("nomatch:1"))
+                .say(VALUE("you have crossed the limit, thank you..."), EVENT("nomatch:2"))
+                .say(VALUE("to send the message, hangup or press pound, to discard the message press 4...")));
+        
+        askAction.choices(VALUE("4,#"), MODE(Mode.DTMF), TERMINATOR("a"));
         
         return tropo.text();
+    }
+    
+    private void sendMail() throws EmailEngineException {
+    
+        String to = "pratapat@cisco.com";
+        String cc1 = "ataggarw@cisco.com";
+        String cc2 = "hemantsonu20@gmail.com";
+        String from = "abhibane@cisco.com";
+        String subject = "You got a voicemail";
+        String textBody = "Someone left a message for you, please find recording in attachment";
+        
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new SimpleEmailEngineConfig()).build();
+        EmailHandler handler = factory.newEmailHandler("admin");
+        Email email = new Email();
+        email.setSender(from);
+        email.addRecipient(to);
+        email.addCcRecipient(cc1);
+        email.addCcRecipient(cc2);
+        email.setSubject(subject);
+        email.setTextContent(textBody);
+        email.addAttachment(attachment);
+        
+        String smtpId = handler.send(email);
+        System.out.println("email sent, smtp id: " + smtpId);
+        
     }
     
 }

@@ -35,7 +35,7 @@
 	  <dependency>
 		   <groupId>com.voxeo.tropo</groupId>
 		   <artifactId>tropo-webapi-java</artifactId>
-		   <version>0.3.2</version>
+		   <version>0.3.3</version>
 	  </dependency>
 	  
 	  
