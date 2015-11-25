@@ -2,9 +2,7 @@ package com.tropo.webapp;
 
 import static com.voxeo.tropo.Key.ATTEMPTS;
 import static com.voxeo.tropo.Key.BARGEIN;
-import static com.voxeo.tropo.Key.EMAIL_FORMAT;
 import static com.voxeo.tropo.Key.EVENT;
-import static com.voxeo.tropo.Key.ID;
 import static com.voxeo.tropo.Key.INTERDIGIT_TIMEOUT;
 import static com.voxeo.tropo.Key.MAX_SILENCE;
 import static com.voxeo.tropo.Key.MODE;
@@ -43,7 +41,6 @@ import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
 import com.cisco.wx2.email.EmailHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voxeo.tropo.ActionResult;
 import com.voxeo.tropo.Tropo;
 import com.voxeo.tropo.TropoResult;
@@ -110,7 +107,7 @@ public class Controller {
         TropoResult sessionResult = tropo.parse(json);
         
         System.out.println("******result***********");
-        System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(sessionResult));
+        System.out.println(sessionResult);
         
         return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -141,7 +138,7 @@ public class Controller {
         }
         
         System.out.println("******result***********");
-        System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(sessionResult));
+        System.out.println(sessionResult);
         
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
