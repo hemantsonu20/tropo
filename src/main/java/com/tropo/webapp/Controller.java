@@ -5,6 +5,7 @@ import static com.voxeo.tropo.Key.BARGEIN;
 import static com.voxeo.tropo.Key.EMAIL_FORMAT;
 import static com.voxeo.tropo.Key.EVENT;
 import static com.voxeo.tropo.Key.ID;
+import static com.voxeo.tropo.Key.INTERDIGIT_TIMEOUT;
 import static com.voxeo.tropo.Key.MAX_SILENCE;
 import static com.voxeo.tropo.Key.MODE;
 import static com.voxeo.tropo.Key.NAME;
@@ -22,7 +23,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Enumeration;
-import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
@@ -42,7 +42,11 @@ import com.cisco.wx2.email.Email;
 import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
 import com.cisco.wx2.email.EmailHandler;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.voxeo.tropo.ActionResult;
 import com.voxeo.tropo.Tropo;
+import com.voxeo.tropo.TropoResult;
 import com.voxeo.tropo.actions.AskAction;
 import com.voxeo.tropo.actions.Do;
 import com.voxeo.tropo.actions.RecordAction;
@@ -67,9 +71,12 @@ public class Controller {
     
     private static File attachment;
     
+    private static int dumpIndex;
+    private static int[] dumpCode = new int[] { 200, 400, 404, 500, 502, 504 };
+    
     @POST
     @Path("record")
-    public Response record(Object session) {
+    public Response record(TropoSessionBean session) {
     
         System.out.println("*****session*****");
         System.out.println(session);
@@ -97,10 +104,13 @@ public class Controller {
     
     @POST
     @Path("continue")
-    public Response continueEvent(Object sessionResult) {
+    public Response continueEvent(String json) throws JsonProcessingException {
     
+        Tropo tropo = new Tropo();
+        TropoResult sessionResult = tropo.parse(json);
+        
         System.out.println("******result***********");
-        System.out.println(sessionResult);
+        System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(sessionResult));
         
         return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -108,7 +118,7 @@ public class Controller {
     
     @POST
     @Path("incomplete")
-    public Response askFailure(Object sessionResult) {
+    public Response inComplete(Object sessionResult) {
     
         System.out.println("******result***********");
         System.out.println(sessionResult);
@@ -121,12 +131,18 @@ public class Controller {
     
     @POST
     @Path("hangup")
-    public Response hangup(Object sessionResult) {
+    public Response hangup(String json) throws JsonProcessingException, EmailEngineException {
     
-        System.out.println("******result***********");
-        System.out.println(sessionResult);
-        
         Tropo tropo = new Tropo();
+        TropoResult sessionResult = tropo.parse(json);
+        
+        if(null != sessionResult.getActions() && 0 != sessionResult.getActions().size()){
+            sendMail();
+        }
+        
+        System.out.println("******result***********");
+        System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(sessionResult));
+        
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -159,8 +175,7 @@ public class Controller {
             System.out.println("*******process exception************");
             e.printStackTrace();
         }
-        return Response.ok().build();
-        
+        return Response.status(dumpCode[dumpIndex = (dumpIndex + 1) % dumpCode.length]).build();
     }
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
@@ -191,10 +206,10 @@ public class Controller {
     
     @POST
     @Path("sendmail")
-    public Response sendMail(TropoSessionResult sessionResultBean, @QueryParam("hangup") String hangup) throws EmailEngineException {
+    public Response sendMail(String json, @QueryParam("event") String event) throws EmailEngineException {
     
         System.out.println("******result***********");
-        System.out.println(sessionResultBean);
+        System.out.println(json);
         
         Tropo tropo = new Tropo();
         if (null == attachment) {
@@ -202,42 +217,46 @@ public class Controller {
             return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         }
         
-        Map<String, Object> result = sessionResultBean.getResult();
-        
-        Boolean isComplete = (Boolean) result.get("complete");
-        
-        if (!isComplete) {
-            tropo.say("didn't get any input, please try again");
+        if(event == null){
+            tropo.say("this should not happen, hangup is null");
             return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        }
+        
+        switch(event){
             
+            case "hangup":
+                sendMail();
+                tropo.hangup();
+                return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+                
+            case "incomplete":
+                sendMail();
+                tropo.say("your message has been sent, good bye");
+                return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+                
+            default:
+                break;
+                
         }
         
-        if (hangup != null && "true".equals(hangup)) {
-            sendMail();
-            tropo.say("your message has been sent, thank you");
-            return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
-        }
-        
+        TropoResult result = tropo.parse(json);
+            
         String dtmfInput = "";
-        Map<String, Object> action = (Map<String, Object>) result.get("actions");
+        ActionResult action = result.getActions().get(0);
         
-        if ("record-input".equals((String) action.get("name"))) {
-            dtmfInput = (String) action.get("value");
+        if ("record-input".equals(action.getName())) {
+            dtmfInput = action.getValue();
         }
         
         switch (dtmfInput) {
         
             case "4":
-                tropo.say("message discarded");
-                break;
-            
-            case "#":
-                sendMail();
-                tropo.say("your message has been sent, thank you");
+                tropo.say("message cancelled, good bye");
                 break;
             
             default:
-                tropo.say("invalid input, message discarded");
+                sendMail();
+                tropo.say("your message has been sent, good bye");
                 break;
         }
         
@@ -269,19 +288,19 @@ public class Controller {
         
         tropo.on("continue", "/continue");
         
-        tropo.on("incomplete", "/incomplete").say("record unsuccessful, please try again...");
+        tropo.on("incomplete", "/incomplete").say("no message recorded, good bye");
         
-        tropo.on("hangup", "/hangup").say("event hangup occured");
+        tropo.on("hangup", "/hangup");
         
-        tropo.on("error", "/error").say("event error occured");
+        tropo.on("error", "/error");
         
-        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(5.0f),
-                createKey("maxTime", 60.0f), ATTEMPTS(2), TIMEOUT(10.0f));
+        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
+                createKey("maxTime", 60.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1));
         
-        recordAction.and(Do.say(VALUE("didn't hear anything, please try again..."), EVENT("timeout")).say(
+        recordAction.and(Do.say(
                 VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound...")));
         
-        recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
+        // recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("#"));
         
         return tropo.text();
@@ -291,19 +310,18 @@ public class Controller {
     
         Tropo tropo = new Tropo();
         
-        tropo.on(EVENT("continue"), NEXT("/sendmail"));
+        tropo.on(EVENT("continue"), NEXT("/sendmail?event=continue"));
         
-        tropo.on("incomplete", "/incomplete").say("no valid input found, discarding the message...");
+        tropo.on("incomplete", "/sendmail?event=incomplete");
         
-        tropo.on("hangup", "/sendmail?hangup=true").say("event hangup occured");
+        tropo.on("hangup", "/sendmail?event=hangup");
         
-        tropo.on("error", "/error").say("event error occured");
+        tropo.on("error", "/error");
         
-        AskAction askAction = tropo.ask(NAME("record-input"), BARGEIN(false), ATTEMPTS(2), TIMEOUT(10.0f));
+        AskAction askAction = tropo.ask(NAME("record-input"), BARGEIN(true), ATTEMPTS(2), TIMEOUT(5.0f), MODE(Mode.DTMF), INTERDIGIT_TIMEOUT(1));
         
-        askAction.and(Do.say(VALUE("no input, please try again..."), EVENT("timeout"))
-                .say(VALUE("invalid input, please try again..."), EVENT("nomatch:1"))
-                .say(VALUE("you have crossed the limit, thank you..."), EVENT("nomatch:2"))
+        askAction.and(Do.say(VALUE("no input..."), EVENT("timeout"))
+                .say(VALUE("invalid input..."), EVENT("nomatch"))
                 .say(VALUE("to send the message, hangup or press pound, to discard the message press 4...")));
         
         askAction.choices(VALUE("4,#"), MODE(Mode.DTMF), TERMINATOR("a"));
