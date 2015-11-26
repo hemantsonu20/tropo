@@ -40,7 +40,7 @@ import com.cisco.wx2.email.Email;
 import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
 import com.cisco.wx2.email.EmailHandler;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voxeo.tropo.ActionResult;
 import com.voxeo.tropo.Tropo;
 import com.voxeo.tropo.TropoResult;
@@ -68,13 +68,16 @@ public class Controller {
     
     private static File attachment;
     
-    private static int dumpIndex;
-    private static int[] dumpCode = new int[] { 200, 400, 404, 500, 502, 504 };
+    private static int dumpCode = 200;
     
     @POST
     @Path("record")
     public Response record(TropoSessionBean session) {
     
+        if (attachment != null) {
+            attachment.delete();
+        }
+        
         System.out.println("*****session*****");
         System.out.println(session);
         
@@ -101,13 +104,16 @@ public class Controller {
     
     @POST
     @Path("continue")
-    public Response continueEvent(String json) throws JsonProcessingException {
+    public Response continueEvent(String json) throws IOException {
     
         Tropo tropo = new Tropo();
         TropoResult sessionResult = tropo.parse(json);
         
-        System.out.println("******result***********");
+        System.out.println("******result gson***********");
         System.out.println(sessionResult);
+        System.out.println("******result jackson***********");
+        ObjectMapper mapper = new ObjectMapper();
+        System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readValue(json, Object.class)));
         
         return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -117,6 +123,7 @@ public class Controller {
     @Path("incomplete")
     public Response inComplete(Object sessionResult) {
     
+        printHeaders();
         System.out.println("******result***********");
         System.out.println(sessionResult);
         
@@ -128,17 +135,20 @@ public class Controller {
     
     @POST
     @Path("hangup")
-    public Response hangup(String json) throws JsonProcessingException, EmailEngineException {
+    public Response hangup(String json) throws EmailEngineException, IOException {
     
         Tropo tropo = new Tropo();
         TropoResult sessionResult = tropo.parse(json);
         
-        if(null != sessionResult.getActions() && 0 != sessionResult.getActions().size()){
+        System.out.println("******result gson***********");
+        System.out.println(sessionResult);
+        System.out.println("******result jackson***********");
+        ObjectMapper mapper = new ObjectMapper();
+        System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readValue(json, Object.class)));
+        
+        if (null != attachment) {
             sendMail();
         }
-        
-        System.out.println("******result***********");
-        System.out.println(sessionResult);
         
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
@@ -159,6 +169,13 @@ public class Controller {
     }
     
     @POST
+    @Path("dumpcode")
+    public Response dumpCode(@QueryParam("code") String code) {
+    
+        return Response.ok().entity(dumpCode = Integer.parseInt(code)).build();
+    }
+    
+    @POST
     @Path("dump")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     public Response dump(@FormDataParam("filename") InputStream in, @FormDataParam("filename") FormDataContentDisposition fileDetail)
@@ -172,7 +189,7 @@ public class Controller {
             System.out.println("*******process exception************");
             e.printStackTrace();
         }
-        return Response.status(dumpCode[dumpIndex = (dumpIndex + 1) % dumpCode.length]).build();
+        return Response.status(dumpCode).build();
     }
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
@@ -214,13 +231,13 @@ public class Controller {
             return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         }
         
-        if(event == null){
+        if (event == null) {
             tropo.say("this should not happen, hangup is null");
             return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         }
         
-        switch(event){
-            
+        switch (event) {
+        
             case "hangup":
                 sendMail();
                 tropo.hangup();
@@ -233,11 +250,11 @@ public class Controller {
                 
             default:
                 break;
-                
+        
         }
         
         TropoResult result = tropo.parse(json);
-            
+        
         String dtmfInput = "";
         ActionResult action = result.getActions().get(0);
         
@@ -294,10 +311,11 @@ public class Controller {
         RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
                 createKey("maxTime", 300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1));
         
-        recordAction.and(Do.say(
-                VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
+        recordAction
+                .and(Do.say(VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
         
-        // recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
+        // recordAction.transcription(ID("phprecord" + flag++),
+        // URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("#"));
         
         return tropo.text();
@@ -317,9 +335,8 @@ public class Controller {
         
         AskAction askAction = tropo.ask(NAME("record-input"), BARGEIN(true), ATTEMPTS(2), TIMEOUT(5.0f), MODE(Mode.DTMF), INTERDIGIT_TIMEOUT(1));
         
-        askAction.and(Do
-                .say(VALUE("invalid input..."), EVENT("nomatch"))
-                .say(VALUE("to send this message press, pound or, hangup, to discard  4...")));
+        askAction
+                .and(Do.say(VALUE("invalid input..."), EVENT("nomatch")).say(VALUE("to send this message, press pound or hangup, to discard  4...")));
         
         askAction.choices(VALUE("4,#"), MODE(Mode.DTMF), TERMINATOR("a"));
         
@@ -329,7 +346,6 @@ public class Controller {
     private void sendMail() throws EmailEngineException {
     
         String to = "pratapat@cisco.com";
-        String cc1 = "ataggarw@cisco.com";
         String cc2 = "hemantsonu20@gmail.com";
         String from = "abhibane@cisco.com";
         String subject = "You got a voicemail";
@@ -340,7 +356,6 @@ public class Controller {
         Email email = new Email();
         email.setSender(from);
         email.addRecipient(to);
-        email.addCcRecipient(cc1);
         email.addCcRecipient(cc2);
         email.setSubject(subject);
         email.setTextContent(textBody);
