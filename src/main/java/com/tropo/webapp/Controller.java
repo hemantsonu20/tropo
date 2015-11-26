@@ -292,10 +292,10 @@ public class Controller {
         tropo.on("error", "/error");
         
         RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
-                createKey("maxTime", 60.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1));
+                createKey("maxTime", 300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1));
         
         recordAction.and(Do.say(
-                VALUE("Sorry, User is not available, record your message after the tone, When you are finished, hangup or press pound...")));
+                VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
         
         // recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("#"));
@@ -317,9 +317,9 @@ public class Controller {
         
         AskAction askAction = tropo.ask(NAME("record-input"), BARGEIN(true), ATTEMPTS(2), TIMEOUT(5.0f), MODE(Mode.DTMF), INTERDIGIT_TIMEOUT(1));
         
-        askAction.and(Do.say(VALUE("no input..."), EVENT("timeout"))
+        askAction.and(Do
                 .say(VALUE("invalid input..."), EVENT("nomatch"))
-                .say(VALUE("to send the message, hangup or press pound, to discard the message press 4...")));
+                .say(VALUE("to send this message press, pound or, hangup, to discard  4...")));
         
         askAction.choices(VALUE("4,#"), MODE(Mode.DTMF), TERMINATOR("a"));
         
