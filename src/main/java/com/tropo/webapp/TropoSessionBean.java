@@ -2,8 +2,10 @@ package com.tropo.webapp;
 
 import java.io.Serializable;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.voxeo.tropo.TropoSession;
 
+@JsonIgnoreProperties(ignoreUnknown=true)
 public class TropoSessionBean implements Serializable {
     
     private static final long serialVersionUID = 3741507526529704913L;

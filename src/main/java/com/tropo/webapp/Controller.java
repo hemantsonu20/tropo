@@ -2,7 +2,9 @@ package com.tropo.webapp;
 
 import static com.voxeo.tropo.Key.ATTEMPTS;
 import static com.voxeo.tropo.Key.BARGEIN;
+import static com.voxeo.tropo.Key.EMAIL_FORMAT;
 import static com.voxeo.tropo.Key.EVENT;
+import static com.voxeo.tropo.Key.ID;
 import static com.voxeo.tropo.Key.INTERDIGIT_TIMEOUT;
 import static com.voxeo.tropo.Key.MAX_SILENCE;
 import static com.voxeo.tropo.Key.MODE;
@@ -20,7 +22,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Enumeration;
+import java.util.Iterator;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
@@ -39,7 +44,11 @@ import org.glassfish.jersey.media.multipart.FormDataParam;
 import com.cisco.wx2.email.Email;
 import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
+import com.cisco.wx2.email.EmailEngineNotification;
 import com.cisco.wx2.email.EmailHandler;
+import com.cisco.wx2.email.event.EmailEvent;
+import com.cisco.wx2.email.event.EmailEventType;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voxeo.tropo.ActionResult;
 import com.voxeo.tropo.Tropo;
@@ -64,11 +73,14 @@ public class Controller {
     
     public static int recording = 1;
     
-    public static String upload;
+    public static String askBody;
+    public static String recordBody;
     
     private static File attachment;
     
     private static int dumpCode = 200;
+    
+    private static String messageID;
     
     @POST
     @Path("record")
@@ -76,29 +88,52 @@ public class Controller {
     
         if (attachment != null) {
             attachment.delete();
+            attachment = null;
         }
         
         System.out.println("*****session*****");
         System.out.println(session);
         
-        return Response.status(200).entity(formRecordSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.status(200).entity((null == recordBody) ? formRecordSampleBody() : recordBody)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
     @POST
     @Path("upload")
-    public Response upload(String upload) {
+    public Response upload(String upload, @QueryParam("content") String content) {
     
-        Controller.upload = upload;
+        switch (content) {
+        
+            case "record":
+                Controller.recordBody = upload;
+                break;
+            case "ask":
+                Controller.askBody = upload;
+                break;
+        
+        }
+        
         return Response.status(200).entity(upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
     @POST
     @Path("download")
-    public Response download() {
+    public Response download(@QueryParam("content") String content) {
     
-        return Response.status(200).entity(formAskSampleBody()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        String text = null;
+        switch (content) {
+        
+            case "record":
+                text = formRecordSampleBody();
+                break;
+            case "ask":
+                text = formAskSampleBody();
+                break;
+        
+        }
+        return Response.status(200).entity(text).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -115,7 +150,8 @@ public class Controller {
         ObjectMapper mapper = new ObjectMapper();
         System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readValue(json, Object.class)));
         
-        return Response.status(200).entity(Controller.upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+        return Response.status(200).entity((null == askBody) ? formAskSampleBody() : askBody)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
     }
     
@@ -194,7 +230,13 @@ public class Controller {
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
     
-        String fileName = fileDetail.getFileName();
+        String fileName = null;
+        if (fileDetail != null) {
+            fileName = fileDetail.getFileName();
+        }
+        else {
+            fileName = "recording.wav";
+        }
         
         String prefix = fileName;
         String suffix = "";
@@ -220,7 +262,7 @@ public class Controller {
     
     @POST
     @Path("sendmail")
-    public Response sendMail(String json, @QueryParam("event") String event) throws EmailEngineException {
+    public Response sendMail(String json, @QueryParam("event") String event) throws EmailEngineException, MalformedURLException {
     
         System.out.println("******result***********");
         System.out.println(json);
@@ -279,6 +321,51 @@ public class Controller {
         
     }
     
+    @POST
+    @Path("email")
+    public Response email() throws MalformedURLException, EmailEngineException {
+    
+        sendMail();
+        return Response.ok().build();
+        
+    }
+    
+    @POST
+    @Path("notify")
+    public Response notify(String body) {
+    
+        System.out.println("******notification***********");
+        printHeaders();
+        System.out.println(body);
+        
+        return Response.ok().build();
+        
+    }
+    
+    @POST
+    @Path("query")
+    public Response query(String body) throws EmailEngineException, JsonProcessingException {
+    
+        System.out.println("******query***********");
+        printHeaders();
+        System.out.println(body);
+        
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new SimpleEmailEngineConfig()).build();
+        EmailHandler handler = factory.newEmailHandler("admin");
+        Iterator<EmailEvent> event = handler.queryEmailEvent(messageID, EmailEventType.opened, EmailEventType.clicked, EmailEventType.delivered,
+                EmailEventType.failed);
+        
+        while(event.hasNext()){
+            
+            System.out.println("**********email event***********");
+            System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(event.next()));
+        }
+        
+        return Response.ok().build();
+        
+    }
+    
+    
     private void printHeaders() {
     
         System.out.println("*****dumpHeader*****");
@@ -314,8 +401,7 @@ public class Controller {
         recordAction
                 .and(Do.say(VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
         
-        // recordAction.transcription(ID("phprecord" + flag++),
-        // URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
+        recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("#"));
         
         return tropo.text();
@@ -343,7 +429,7 @@ public class Controller {
         return tropo.text();
     }
     
-    private void sendMail() throws EmailEngineException {
+    private void sendMail() throws EmailEngineException, MalformedURLException {
     
         String to = "pratapat@cisco.com";
         String cc2 = "hemantsonu20@gmail.com";
@@ -359,10 +445,19 @@ public class Controller {
         email.addCcRecipient(cc2);
         email.setSubject(subject);
         email.setTextContent(textBody);
-        email.addAttachment(attachment);
+        if (null != attachment) {
+            email.addAttachment(attachment);
+        }
         
-        String smtpId = handler.send(email);
-        System.out.println("email sent, smtp id: " + smtpId);
+        System.out.println(info.getBaseUri() + "notify");
+        EmailEngineNotification notification = new EmailEngineNotification(new URL(info.getBaseUri() + "notify"));
+        notification.addEmailEvent(EmailEventType.clicked);
+        notification.addEmailEvent(EmailEventType.opened);
+        notification.addEmailEvent(EmailEventType.failed);
+        notification.addEmailEvent(EmailEventType.delivered);
+        
+        messageID = handler.send(email, notification);
+        System.out.println("email sent, smtp id: " + messageID);
         
     }
     
