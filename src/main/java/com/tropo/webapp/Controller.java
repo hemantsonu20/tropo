@@ -350,7 +350,7 @@ public class Controller {
         printHeaders();
         System.out.println(body);
         
-        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new SimpleEmailEngineConfig()).build();
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new PersonalEmailEngineConfig()).build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Iterator<EmailEvent> event = handler.queryEmailEvent(messageID, EmailEventType.opened, EmailEventType.clicked, EmailEventType.delivered,
                 EmailEventType.failed);
@@ -437,7 +437,7 @@ public class Controller {
         String subject = "You got a voicemail";
         String textBody = "Someone left a message for you, please find recording in attachment";
         
-        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new SimpleEmailEngineConfig()).build();
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new PersonalEmailEngineConfig()).build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Email email = new Email();
         email.setSender(from);

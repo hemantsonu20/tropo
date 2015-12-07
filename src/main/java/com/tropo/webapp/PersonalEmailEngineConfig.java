@@ -9,7 +9,7 @@ import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.config.EmailEngineConfig;
 import com.cisco.wx2.email.recorder.EmailEventMetrics;
 
-public class SimpleEmailEngineConfig implements EmailEngineConfig {
+public class PersonalEmailEngineConfig implements EmailEngineConfig {
     
     List<String> vendorList = new ArrayList<String>();
     Map<String, String> apiMap = new HashMap<String, String>();
@@ -18,10 +18,10 @@ public class SimpleEmailEngineConfig implements EmailEngineConfig {
     
     private final String vendor = "MAILGUN";
     private final String apiUrl = "https://api.mailgun.net/v3";
-    private final String identity = "sandbox096bc9fa55164457abe17b8822dd0a5b.mailgun.org";
-    private final String credential = "key-31f679edd0ac1a2f541184280db1d1e0";
+    private final String identity = "****.mailgun.org";
+    private final String credential = "key:****";
     
-    public SimpleEmailEngineConfig() {
+    public PersonalEmailEngineConfig() {
     
         vendorList.add(vendor);
         apiMap.put(vendor, apiUrl);
