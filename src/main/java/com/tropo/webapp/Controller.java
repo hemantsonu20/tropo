@@ -39,6 +39,7 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 
 import org.glassfish.jersey.media.multipart.FormDataContentDisposition;
+import org.glassfish.jersey.media.multipart.FormDataMultiPart;
 import org.glassfish.jersey.media.multipart.FormDataParam;
 
 import com.cisco.wx2.email.Email;
@@ -218,6 +219,7 @@ public class Controller {
             throws IOException {
     
         printHeaders();
+        
         try {
             processBody(in, fileDetail);
         }
@@ -230,6 +232,11 @@ public class Controller {
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
     
+        if (null == in) {
+            System.out.println("input stream is null");
+            return;
+        }
+        
         String fileName = null;
         if (fileDetail != null) {
             fileName = fileDetail.getFileName();
@@ -355,7 +362,7 @@ public class Controller {
         Iterator<EmailEvent> event = handler.queryEmailEvent(messageID, EmailEventType.opened, EmailEventType.clicked, EmailEventType.delivered,
                 EmailEventType.failed);
         
-        while(event.hasNext()){
+        while (event.hasNext()) {
             
             System.out.println("**********email event***********");
             System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(event.next()));
@@ -364,7 +371,6 @@ public class Controller {
         return Response.ok().build();
         
     }
-    
     
     private void printHeaders() {
     
@@ -395,8 +401,8 @@ public class Controller {
         
         tropo.on("error", "/error");
         
-        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
-                createKey("maxTime", 300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1));
+        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "emulatordump"), BARGEIN(false), MAX_SILENCE(3.0f),
+                createKey("maxTime", 300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1), createKey("asyncUpload", false));
         
         recordAction
                 .and(Do.say(VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
@@ -460,5 +466,41 @@ public class Controller {
         System.out.println("email sent, smtp id: " + messageID);
         
     }
+    
+    @POST
+    @Path("multiparts")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public Response multiparts(FormDataMultiPart multiPart)
+            throws IOException {
+    
+        printHeaders();
+        
+        System.out.println("***all multiparts name***");
+        multiPart.getFields().forEach( (k,v) -> 
+        {
+            System.out.println(k);
+        });
+        
+        return Response.status(dumpCode).build();
+    }
+    
+    @POST
+    @Path("emulatordump")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public Response emulatorDump(@FormDataParam("file") InputStream in, @FormDataParam("file") FormDataContentDisposition fileDetail)
+            throws IOException {
+    
+        printHeaders();
+        
+        try {
+            processBody(in, fileDetail);
+        }
+        catch (Exception e) {
+            System.out.println("*******process exception************");
+            e.printStackTrace();
+        }
+        return Response.status(dumpCode).build();
+    }
+    
     
 }
