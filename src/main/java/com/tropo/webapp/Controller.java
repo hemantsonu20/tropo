@@ -1,5 +1,6 @@
 package com.tropo.webapp;
 
+import static com.voxeo.tropo.Key.ASYNC_UPLOAD;
 import static com.voxeo.tropo.Key.ATTEMPTS;
 import static com.voxeo.tropo.Key.BARGEIN;
 import static com.voxeo.tropo.Key.EMAIL_FORMAT;
@@ -7,6 +8,8 @@ import static com.voxeo.tropo.Key.EVENT;
 import static com.voxeo.tropo.Key.ID;
 import static com.voxeo.tropo.Key.INTERDIGIT_TIMEOUT;
 import static com.voxeo.tropo.Key.MAX_SILENCE;
+import static com.voxeo.tropo.Key.MAX_TIME;
+import static com.voxeo.tropo.Key.METHOD;
 import static com.voxeo.tropo.Key.MODE;
 import static com.voxeo.tropo.Key.NAME;
 import static com.voxeo.tropo.Key.NEXT;
@@ -14,7 +17,6 @@ import static com.voxeo.tropo.Key.TERMINATOR;
 import static com.voxeo.tropo.Key.TIMEOUT;
 import static com.voxeo.tropo.Key.URL;
 import static com.voxeo.tropo.Key.VALUE;
-import static com.voxeo.tropo.Key.createKey;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -22,14 +24,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.Enumeration;
 import java.util.Iterator;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.FormParam;
 import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
@@ -45,7 +49,6 @@ import org.glassfish.jersey.media.multipart.FormDataParam;
 import com.cisco.wx2.email.Email;
 import com.cisco.wx2.email.EmailEngineException;
 import com.cisco.wx2.email.EmailEngineFactory;
-import com.cisco.wx2.email.EmailEngineNotification;
 import com.cisco.wx2.email.EmailHandler;
 import com.cisco.wx2.email.event.EmailEvent;
 import com.cisco.wx2.email.event.EmailEventType;
@@ -54,6 +57,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voxeo.tropo.ActionResult;
 import com.voxeo.tropo.Tropo;
 import com.voxeo.tropo.TropoResult;
+import com.voxeo.tropo.TropoSession;
+import com.voxeo.tropo.TropoUtils;
 import com.voxeo.tropo.actions.AskAction;
 import com.voxeo.tropo.actions.Do;
 import com.voxeo.tropo.actions.RecordAction;
@@ -70,6 +75,8 @@ public class Controller {
     
     private static final int DEFAULT_BUFFER_SIZE = 10240;
     
+    private static final String VENDOR = "MAILGUN";
+    
     public static int flag = 1;
     
     public static int recording = 1;
@@ -83,18 +90,18 @@ public class Controller {
     
     private static String messageID;
     
+    private static final PersonalEmailEngineConfig config = new PersonalEmailEngineConfig();
+    
     @POST
     @Path("record")
-    public Response record(TropoSessionBean session) {
+    public Response record(String json) {
     
+        getAndPrintSession(json);
+        
         if (attachment != null) {
             attachment.delete();
             attachment = null;
         }
-        
-        System.out.println("*****session*****");
-        System.out.println(session);
-        
         return Response.status(200).entity((null == recordBody) ? formRecordSampleBody() : recordBody)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -142,14 +149,8 @@ public class Controller {
     @Path("continue")
     public Response continueEvent(String json) throws IOException {
     
-        Tropo tropo = new Tropo();
-        TropoResult sessionResult = tropo.parse(json);
-        
-        System.out.println("******result gson***********");
-        System.out.println(sessionResult);
-        System.out.println("******result jackson***********");
-        ObjectMapper mapper = new ObjectMapper();
-        System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readValue(json, Object.class)));
+        System.out.println("continue event at " + System.currentTimeMillis());
+        getAndPrintResult(json);
         
         return Response.status(200).entity((null == askBody) ? formAskSampleBody() : askBody)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
@@ -158,11 +159,9 @@ public class Controller {
     
     @POST
     @Path("incomplete")
-    public Response inComplete(Object sessionResult) {
+    public Response inComplete(String json) {
     
-        printHeaders();
-        System.out.println("******result***********");
-        System.out.println(sessionResult);
+        getAndPrintResult(json);
         
         Tropo tropo = new Tropo();
         tropo.hangup();
@@ -174,19 +173,13 @@ public class Controller {
     @Path("hangup")
     public Response hangup(String json) throws EmailEngineException, IOException {
     
-        Tropo tropo = new Tropo();
-        TropoResult sessionResult = tropo.parse(json);
-        
-        System.out.println("******result gson***********");
-        System.out.println(sessionResult);
-        System.out.println("******result jackson***********");
-        ObjectMapper mapper = new ObjectMapper();
-        System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mapper.readValue(json, Object.class)));
+        getAndPrintResult(json);
         
         if (null != attachment) {
             sendMail();
         }
         
+        Tropo tropo = new Tropo();
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
         
@@ -194,11 +187,9 @@ public class Controller {
     
     @POST
     @Path("error")
-    public Response error(Object sessionResult) {
+    public Response error(String json) {
     
-        System.out.println("******result***********");
-        System.out.println(sessionResult);
-        
+        getAndPrintResult(json);
         Tropo tropo = new Tropo();
         tropo.hangup();
         return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
@@ -212,7 +203,7 @@ public class Controller {
         return Response.ok().entity(dumpCode = Integer.parseInt(code)).build();
     }
     
-    @POST
+    @PUT
     @Path("dump")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     public Response dump(@FormDataParam("filename") InputStream in, @FormDataParam("filename") FormDataContentDisposition fileDetail)
@@ -227,7 +218,9 @@ public class Controller {
             System.out.println("*******process exception************");
             e.printStackTrace();
         }
-        return Response.status(dumpCode).build();
+        System.out.println("recording dump response at " + System.currentTimeMillis());
+        return Response.status(dumpCode).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.LOCATION, "http://location-header.com/recording").entity(new Bean()).build();
     }
     
     private void processBody(InputStream in, FormDataContentDisposition fileDetail) throws IOException, EmailEngineException {
@@ -240,6 +233,8 @@ public class Controller {
         String fileName = null;
         if (fileDetail != null) {
             fileName = fileDetail.getFileName();
+            System.out.println("Content-Disposition");
+            System.out.println(fileDetail);
         }
         else {
             fileName = "recording.wav";
@@ -271,9 +266,7 @@ public class Controller {
     @Path("sendmail")
     public Response sendMail(String json, @QueryParam("event") String event) throws EmailEngineException, MalformedURLException {
     
-        System.out.println("******result***********");
-        System.out.println(json);
-        
+        TropoResult result = getAndPrintResult(json);
         Tropo tropo = new Tropo();
         if (null == attachment) {
             tropo.say("recording not received for some reason, please try again");
@@ -302,8 +295,6 @@ public class Controller {
         
         }
         
-        TropoResult result = tropo.parse(json);
-        
         String dtmfInput = "";
         ActionResult action = result.getActions().get(0);
         
@@ -330,20 +321,14 @@ public class Controller {
     
     @POST
     @Path("email")
-    public Response email() throws MalformedURLException, EmailEngineException {
+    public Response email(@QueryParam("id") String id) throws MalformedURLException, EmailEngineException {
     
-        sendMail();
-        return Response.ok().build();
-        
-    }
-    
-    @POST
-    @Path("notify")
-    public Response notify(String body) {
-    
-        System.out.println("******notification***********");
-        printHeaders();
-        System.out.println(body);
+        if (null == id) {
+            sendMail();
+        }
+        else {
+            sendMail(id);
+        }
         
         return Response.ok().build();
         
@@ -357,7 +342,7 @@ public class Controller {
         printHeaders();
         System.out.println(body);
         
-        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new PersonalEmailEngineConfig()).build();
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(config).build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Iterator<EmailEvent> event = handler.queryEmailEvent(messageID, EmailEventType.opened, EmailEventType.clicked, EmailEventType.delivered,
                 EmailEventType.failed);
@@ -401,14 +386,14 @@ public class Controller {
         
         tropo.on("error", "/error");
         
-        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "emulatordump"), BARGEIN(false), MAX_SILENCE(3.0f),
-                createKey("maxTime", 300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1), createKey("asyncUpload", false));
+        RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
+                MAX_TIME(300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1), ASYNC_UPLOAD(false), METHOD("PUT"));
         
         recordAction
                 .and(Do.say(VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
         
         recordAction.transcription(ID("phprecord" + flag++), URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
-        recordAction.choices(TERMINATOR("#"));
+        recordAction.choices(TERMINATOR("0,1,2,3,4,5,6,7,8,9,*,#"));
         
         return tropo.text();
     }
@@ -435,53 +420,46 @@ public class Controller {
         return tropo.text();
     }
     
-    private void sendMail() throws EmailEngineException, MalformedURLException {
+    private void sendMail(String... cc) throws EmailEngineException, MalformedURLException {
     
         String to = "pratapat@cisco.com";
-        String cc2 = "hemantsonu20@gmail.com";
         String from = "abhibane@cisco.com";
         String subject = "You got a voicemail";
         String textBody = "Someone left a message for you, please find recording in attachment";
         
-        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(new PersonalEmailEngineConfig()).build();
+        EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(config).build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Email email = new Email();
+        email.putUserVariable("sampleuserkey", "sampleuservalue");
         email.setSender(from);
         email.addRecipient(to);
-        email.addCcRecipient(cc2);
+        if (cc.length > 0) {
+            email.addCcRecipient(cc[0]);
+        }
         email.setSubject(subject);
         email.setTextContent(textBody);
         if (null != attachment) {
             email.addAttachment(attachment);
         }
         
-        System.out.println(info.getBaseUri() + "notify");
-        EmailEngineNotification notification = new EmailEngineNotification(new URL(info.getBaseUri() + "notify"));
-        notification.addEmailEvent(EmailEventType.clicked);
-        notification.addEmailEvent(EmailEventType.opened);
-        notification.addEmailEvent(EmailEventType.failed);
-        notification.addEmailEvent(EmailEventType.delivered);
-        
-        messageID = handler.send(email, notification);
+        messageID = handler.send(email);
         System.out.println("email sent, smtp id: " + messageID);
         
     }
     
     @POST
     @Path("multiparts")
-    @Consumes(MediaType.MULTIPART_FORM_DATA)
-    public Response multiparts(FormDataMultiPart multiPart)
-            throws IOException {
+    @Consumes({ MediaType.MULTIPART_FORM_DATA, MediaType.APPLICATION_FORM_URLENCODED })
+    public Response multiparts(FormDataMultiPart multiPart) throws IOException {
     
         printHeaders();
         
         System.out.println("***all multiparts name***");
-        multiPart.getFields().forEach( (k,v) -> 
-        {
+        multiPart.getFields().forEach((k, v) -> {
             System.out.println(k);
         });
         
-        return Response.status(dumpCode).build();
+        return Response.ok().build();
     }
     
     @POST
@@ -502,5 +480,133 @@ public class Controller {
         return Response.status(dumpCode).build();
     }
     
+    @Path("notify/failed")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    @POST
+    public Response getFailedEvent(@FormDataParam("domain") String domain, @FormDataParam("event") String event,
+            @FormDataParam("Message-Id") String messageId, @FormDataParam("recipient") String recipient, @FormDataParam("code") int code,
+            @FormDataParam("description") String description, @FormDataParam("reason") String reason,
+            @FormDataParam("message-headers") String messageHeaders, @FormDataParam("timestamp") String timestamp,
+            @FormDataParam("token") String token, @FormDataParam("signature") String signature) throws EmailEngineException,
+            UnsupportedEncodingException {
+    
+        InternalEmailEvent internalEmailEvent = EmailEventUtils.parseMessageHeaders(messageHeaders);
+        
+        String apiKey = config.getCredential().get(VENDOR);
+        
+        if (!EmailEventUtils.isSecure(apiKey, timestamp, token, signature)) {
+            
+            return unauthorized();
+        }
+        
+        if ("dropped".equals(event)) {
+            internalEmailEvent.setEvent("failed");
+        }
+        else {
+            internalEmailEvent.setEvent(event);
+        }
+        
+        internalEmailEvent.setDomain(domain);
+        internalEmailEvent.setMessageId(parseMessageId(messageId));
+        
+        internalEmailEvent.setRecipient(recipient);
+        
+        EmailEventError emailEventError = new EmailEventError();
+        emailEventError.setCode(code);
+        emailEventError.setDescription(description);
+        emailEventError.setReason(reason);
+        internalEmailEvent.setError(emailEventError);
+        
+        printWebhook(internalEmailEvent);
+        
+        return Response.ok().build();
+    }
+    
+    @Path("notify/success")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @POST
+    public Response getDeliveredEvent(@FormParam("domain") String domain, @FormParam("event") String event,
+            @FormParam("Message-Id") String messageId, @FormParam("recipient") String recipient, @FormParam("message-headers") String messageHeaders,
+            @FormParam("timestamp") String timestamp, @FormParam("token") String token, @FormParam("signature") String signature)
+            throws EmailEngineException, UnsupportedEncodingException {
+    
+        InternalEmailEvent internalEmailEvent = EmailEventUtils.parseMessageHeaders(messageHeaders);
+        
+        String apiKey = config.getCredential().get(VENDOR);
+        
+        if (!EmailEventUtils.isSecure(apiKey, timestamp, token, signature)) {
+            return unauthorized();
+        }
+        
+        internalEmailEvent.setDomain(domain);
+        internalEmailEvent.setEvent(event);
+        
+        internalEmailEvent.setMessageId(parseMessageId(messageId));
+        
+        internalEmailEvent.setRecipient(recipient);
+        
+        printWebhook(internalEmailEvent);
+        
+        return Response.ok().build();
+    }
+    
+    private TropoSession getAndPrintSession(String json) {
+    
+        TropoSession session = null;
+        System.out.println("////////////////////////////////////");
+        printHeaders();
+        
+        try {
+            session = new Tropo().session(json);
+            System.out.println(session);
+            
+        }
+        catch (Exception e) {
+            System.out.println("Invalid session:" + json);
+        }
+        
+        System.out.println("////////////////////////////////////");
+        return session;
+        
+    }
+    
+    private TropoResult getAndPrintResult(String json) {
+    
+        TropoResult result = null;
+        System.out.println("////////////////////////////////////");
+        printHeaders();
+        
+        try {
+            result = new Tropo().parse(json);
+            System.out.println(result);
+            
+        }
+        catch (Exception e) {
+            System.out.println("Invalid result:" + json);
+        }
+        
+        System.out.println("////////////////////////////////////");
+        return result;
+        
+    }
+    
+    private Response unauthorized() {
+    
+        System.out.println("Fail to verify the source of email webhook");
+        return Response.status(401).build();
+    }
+    
+    private String parseMessageId(String messageId) {
+    
+        return messageId.substring(1, messageId.length() - 1);
+    }
+    
+    private void printWebhook(Object obj) {
+    
+        System.out.println("////////////////////////////////////");
+        printHeaders();
+        System.out.println(TropoUtils.toPrettyString(obj));
+        System.out.println("////////////////////////////////////");
+    }
     
 }
