@@ -18,8 +18,8 @@ public class PersonalEmailEngineConfig implements EmailEngineConfig {
     
     private final String vendor = "MAILGUN";
     private final String apiUrl = "https://api.mailgun.net/v3";
-    private final String identity = "****.mailgun.org";
-    private final String credential = "key:****";
+    private final String identity = "sandbox3538a7c6281049bbb67ff780f0274dbe.mailgun.org";
+    private final String credential = "key-7b734e605d402c5ea9b8aca80ad8fd99";
     
     public PersonalEmailEngineConfig() {
     
