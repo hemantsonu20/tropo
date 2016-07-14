@@ -3,7 +3,9 @@ package com.tropo.webapp;
 import static com.voxeo.tropo.Key.ASYNC_UPLOAD;
 import static com.voxeo.tropo.Key.ATTEMPTS;
 import static com.voxeo.tropo.Key.BARGEIN;
+import static com.voxeo.tropo.Key.EMAIL_FORMAT;
 import static com.voxeo.tropo.Key.EVENT;
+import static com.voxeo.tropo.Key.ID;
 import static com.voxeo.tropo.Key.INTERDIGIT_TIMEOUT;
 import static com.voxeo.tropo.Key.MAX_SILENCE;
 import static com.voxeo.tropo.Key.MAX_TIME;
@@ -11,13 +13,13 @@ import static com.voxeo.tropo.Key.METHOD;
 import static com.voxeo.tropo.Key.MODE;
 import static com.voxeo.tropo.Key.NAME;
 import static com.voxeo.tropo.Key.NEXT;
+import static com.voxeo.tropo.Key.PASSWORD;
 import static com.voxeo.tropo.Key.TERMINATOR;
 import static com.voxeo.tropo.Key.TIMEOUT;
 import static com.voxeo.tropo.Key.TO;
 import static com.voxeo.tropo.Key.URL;
-import static com.voxeo.tropo.Key.VALUE;
 import static com.voxeo.tropo.Key.USERNAME;
-import static com.voxeo.tropo.Key.PASSWORD;
+import static com.voxeo.tropo.Key.VALUE;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -25,7 +27,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.util.Base64;
 import java.util.Iterator;
@@ -33,7 +34,7 @@ import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
-import javax.ws.rs.FormParam;
+import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -78,18 +79,12 @@ public class Controller {
     
     private static final int DEFAULT_BUFFER_SIZE = 10240;
     
-    private static final String VENDOR = "MAILGUN";
-    
-    public static int flag = 1;
-    
-    public static int recording = 1;
-    
-    public static String askBody;
-    public static String recordBody;
-    public static String transferBody;
-    public static String dumpResponse;
-    public static String diversionBody;
-    public static String wwwHeader = "Basic realm=\"pratapi\"";
+    private static String askBody;
+    private static String recordBody;
+    private static String dumpResponse;
+    private static String diversionBody;
+    private static String scriptBody;
+    private static String wwwHeader = "Basic realm=\"pratapi\"";
     
     private final static String DIVERSION_HEADER_KEY = "diversion";
     private final static String DIVERSION_HEADER_VALUE = "pregoldtx2sl 1guisnr2 <sip:pregoldtx2sl+1guisnr2@gmail-com.wbx2.com;x-cisco-number=6337>;reason=no-answer;privacy=off;screen=yes;x-cisco-tenant=";
@@ -98,23 +93,14 @@ public class Controller {
     
     private static int dumpCode = 200;
     
+    private static int scriptCode = 200;
+    
     private static final PersonalEmailEngineConfig config = new PersonalEmailEngineConfig();
     
     @POST
-    @Path("transfer")
-    public Response transfer(String json) {
-        
-        getAndPrintSession(json);
-        String body = (null == transferBody) ? formTransferSampleBody("sip:9996112421@sip.tropo.com") : transferBody;
-        return Response.status(200).entity(body)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
-                .build();
-    }
-    
-    @POST
     @Path("rna")
-    public Response rna(String json) {
-        
+    public Response rna(String json, @QueryParam("num") String num) {
+    
         getAndPrintSession(json);
         
         String diversion = "<sip:9512890915@cisco.com>;x-cisco-tenant=d46ed552-040a-4c32-9305-0a52f5501d5d;reason=no-answer;privacy=off;screen=yes;";
@@ -125,23 +111,41 @@ public class Controller {
         tropo.on("incomplete", "/transfercomplete?event=incomplete");
         tropo.on("error", "/transfercomplete?event=error");
         tropo.say("transferring call towards Avril...");
-        TransferAction transferAction = tropo.transfer(TO("9993990167@sip.tropo.com"), NAME("php-transfer"), TIMEOUT(10.0f));
-        transferAction.headers(new String[] {DIVERSION_HEADER_KEY, diversion});
+        TransferAction transferAction = tropo.transfer(TO(num + "@sip.tropo.com"), NAME("php-transfer"), TIMEOUT(10.0f));
+        transferAction.headers(new String[] { DIVERSION_HEADER_KEY, diversion });
         
-        return Response.status(200).entity(tropo.text())
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
-                .build();
+        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+    }
+    
+    @GET
+    @Path("customer")
+    public Response customer(String json) {
+    
+        printPrettyObject(json);
+        String text = "{ \"name\" : \"Hemant\"  }";
+        return Response.status(200).entity(text).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+    }
+    
+    @POST
+    @Path("script")
+    public Response script(String json) {
+    
+        getAndPrintSession(json);
+        
+        Tropo tropo = new Tropo();
+        tropo.say("Hello tropo scripting");
+        
+        return Response.status(scriptCode).entity(scriptBody == null ? tropo.text() : scriptBody)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
     
     @POST
     @Path("diversion")
     public Response diversion(String json) {
-        
+    
         getAndPrintSession(json);
         String body = (null == diversionBody) ? formTransferSampleBody("sip:+12244207705@sip-trunk-bandwidth.tropo.com") : diversionBody;
-        return Response.status(200).entity(body)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
-                .build();
+        return Response.status(200).entity(body).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
     
     @POST
@@ -169,9 +173,7 @@ public class Controller {
         }
         
         String body = (null == recordBody) ? formRecordSampleBody() : recordBody;
-        return Response.status(200).entity(body)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON)
-                .build();
+        return Response.status(200).entity(body).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
     
     @POST
@@ -186,14 +188,18 @@ public class Controller {
             case "ask":
                 Controller.askBody = "null".equals(upload) ? null : upload;
                 break;
-            case "transfer":
-                Controller.transferBody = "null".equals(upload) ? null : upload;
-                break;
             case "diversion":
                 Controller.diversionBody = "null".equals(upload) ? null : upload;
                 break;
-            case "www-header":
-                Controller.wwwHeader = "null".equals(upload) ? null : upload;
+            case "scriptBody":
+                Controller.scriptBody = "null".equals(upload) ? null : upload;
+                break;
+            case "scriptCode":
+                Controller.scriptCode = "null".equals(upload) ? 200 : Integer.parseInt(upload);
+                break;
+            case "dumpCode":
+                Controller.dumpCode = "null".equals(upload) ? 200 : Integer.parseInt(upload);
+                break;
         }
         return Response.status(200).entity(upload).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
@@ -211,7 +217,6 @@ public class Controller {
             case "ask":
                 text = formAskSampleBody();
                 break;
-            case "transfer":
             case "diversion":
                 text = formTransferSampleBody("tel:+19194761199");
                 break;
@@ -271,10 +276,11 @@ public class Controller {
     }
     
     @POST
-    @Path("dumpresponse")
-    public Response dumpCode(@QueryParam("code") String code, String body) {
+    @Path("/")
+    public Response transcript(String json) {
     
-        return Response.status(dumpCode = Integer.parseInt(code)).entity(dumpResponse = body).build();
+        printPrettyObject(json);
+        return Response.ok().build();
     }
     
     @POST
@@ -298,11 +304,10 @@ public class Controller {
     
     private Response handleDump(InputStream in, FormDataContentDisposition fileDetail) {
     
-        
         String actualauth = request.getHeader(HttpHeaders.AUTHORIZATION);
         String expectedAuth = "Basic " + Base64.getEncoder().encodeToString("pratapi:hemant".getBytes());
         System.out.println(String.format("Actual auth ]%s[ , expected auth ]%s[", actualauth, expectedAuth));
-        if(!expectedAuth.equals(actualauth)) {
+        if (!expectedAuth.equals(actualauth)) {
             return Response.status(401).header(HttpHeaders.WWW_AUTHENTICATE, wwwHeader).build();
         }
         
@@ -344,7 +349,7 @@ public class Controller {
             suffix = fileName.substring(fileName.lastIndexOf('.'));
         }
         
-        attachment = File.createTempFile(recording++ + "recording-" + prefix, suffix);
+        attachment = File.createTempFile("recording-" + prefix, suffix);
         
         try (OutputStream out = new BufferedOutputStream(new FileOutputStream(attachment), DEFAULT_BUFFER_SIZE)) {
             
@@ -441,16 +446,10 @@ public class Controller {
         System.out.println("query for " + id);
         
         EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(config)/*
-                                                                                            * .
-                                                                                            * proxyHost
-                                                                                            * (
+                                                                                            * . proxyHost (
                                                                                             * "proxy-wsa.esl.cisco.com"
-                                                                                            * )
-                                                                                            * .
-                                                                                            * proxyPort
-                                                                                            * (
-                                                                                            * 80
-                                                                                            * )
+                                                                                            * ) . proxyPort (
+                                                                                            * 80 )
                                                                                             */.build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Iterator<EmailEvent> event = handler.queryEmailEvent(id, EmailEventType.opened, EmailEventType.clicked, EmailEventType.delivered,
@@ -482,28 +481,33 @@ public class Controller {
         
         tropo.on("error", "/error");
         
+        tropo.say("");
+        
         RecordAction recordAction = tropo.record(NAME("phprecord"), URL(info.getBaseUri() + "dump"), BARGEIN(false), MAX_SILENCE(3.0f),
-                MAX_TIME(300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1), ASYNC_UPLOAD(false), METHOD("POST"), USERNAME("pratapi"), PASSWORD("hemant"));
+                MAX_TIME(300.0f), ATTEMPTS(1), TIMEOUT(5.0f), INTERDIGIT_TIMEOUT(1), ASYNC_UPLOAD(false), METHOD("POST"), USERNAME("pratapi"),
+                PASSWORD("hemant"));
         
         recordAction
                 .and(Do.say(VALUE("Sorry, the person you are trying to reach is not available, record your message after the tone, When you are finished, hangup or press pound for more options...")));
         
-        // recordAction.transcription(ID("phprecord" + flag++),
-        // URL("mailto:pratapat@cisco.com"), EMAIL_FORMAT("encoded"));
+        recordAction.transcription(ID("phprecord"), URL(info.getBaseUri().toString()), EMAIL_FORMAT("encoded"));
         recordAction.choices(TERMINATOR("0,1,2,3,4,5,6,7,8,9,*,#"));
         
         return tropo.text();
     }
     
     private String formTransferSampleBody(String to) {
-
-        //abhibane voicemail number -> tel:+19194761199
+    
+        // abhibane voicemail number -> tel:+19194761199
         
-        //abhibane direct number -> tel:+19194761174
+        // abhibane direct number -> tel:+19194761174
         // my number -> sip:+12244207705@sip-trunk-bandwidth.tropo.com
-        //id:pin -> ;tel:+19194761199;postd=pp81001174#pp2297734#
+        // id:pin -> ;tel:+19194761199;postd=pp81001174#pp2297734#
         
         // sip:+19194761199@cluster-a-ucxn.sc-tx3.huron-dev.com:5061
+        
+        // ran ->
+        // sip:+14084744438@trunk.tropoaa.huron-int.com;user=phone;transport=tls;x-cisco-tenant=dec55d7a-9d08-4a12-a9a7-052939c29ae0
         
         Tropo tropo = new Tropo();
         tropo.on("continue", "/transfercomplete?event=continue").say("transfer completed, thank you");
@@ -512,7 +516,7 @@ public class Controller {
         tropo.on("error", "/transfercomplete?event=error");
         tropo.say("transferring call towards CPE Cloud...");
         TransferAction transferAction = tropo.transfer(TO(to), NAME("php-transfer"), TIMEOUT(10.0f));
-        transferAction.headers(new String[] {DIVERSION_HEADER_KEY, DIVERSION_HEADER_VALUE + UUID.randomUUID()});
+        transferAction.headers(new String[] { DIVERSION_HEADER_KEY, DIVERSION_HEADER_VALUE + UUID.randomUUID() });
         return tropo.text();
     }
     
@@ -546,16 +550,10 @@ public class Controller {
         String textBody = "Someone left a message for you, please find recording in attachment";
         
         EmailEngineFactory factory = EmailEngineFactory.builder().emailEngineConfig(config)/*
-                                                                                            * .
-                                                                                            * proxyHost
-                                                                                            * (
+                                                                                            * . proxyHost (
                                                                                             * "proxy-wsa.esl.cisco.com"
-                                                                                            * )
-                                                                                            * .
-                                                                                            * proxyPort
-                                                                                            * (
-                                                                                            * 80
-                                                                                            * )
+                                                                                            * ) . proxyPort (
+                                                                                            * 80 )
                                                                                             */.build();
         EmailHandler handler = factory.newEmailHandler("admin");
         Email email = new Email();
@@ -582,7 +580,6 @@ public class Controller {
     @Consumes({ MediaType.MULTIPART_FORM_DATA, MediaType.APPLICATION_FORM_URLENCODED })
     public Response multiparts(FormDataMultiPart multiPart) throws IOException {
     
-        
         System.out.println("***all multiparts name***");
         multiPart.getFields().forEach((k, v) -> {
             System.out.println(k);
@@ -606,74 +603,52 @@ public class Controller {
         return handleDump(in, fileDetail);
     }
     
-    @Path("notify/failed")
-    @Consumes(MediaType.MULTIPART_FORM_DATA)
     @POST
-    public Response getFailedEvent(@FormDataParam("domain") String domain, @FormDataParam("event") String event,
-            @FormDataParam("Message-Id") String messageId, @FormDataParam("recipient") String recipient, @FormDataParam("code") int code,
-            @FormDataParam("description") String description, @FormDataParam("reason") String reason,
-            @FormDataParam("message-headers") String messageHeaders, @FormDataParam("timestamp") String timestamp,
-            @FormDataParam("token") String token, @FormDataParam("signature") String signature) throws EmailEngineException,
-            UnsupportedEncodingException {
+    @Path("sleeptransfer")
+    public Response sleepTransfer(String json) throws InterruptedException {
     
-        InternalEmailEvent internalEmailEvent = EmailEventUtils.parseMessageHeaders(messageHeaders);
+        getAndPrintSession(json);
         
-        String apiKey = config.getCredential().get(VENDOR);
-        
-        if (!EmailEventUtils.isSecure(apiKey, timestamp, token, signature)) {
-            
-            return unauthorized();
-        }
-        
-        if ("dropped".equals(event)) {
-            internalEmailEvent.setEvent("failed");
-        }
-        else {
-            internalEmailEvent.setEvent(event);
-        }
-        
-        internalEmailEvent.setDomain(domain);
-        internalEmailEvent.setMessageId(parseMessageId(messageId));
-        
-        internalEmailEvent.setRecipient(recipient);
-        
-        EmailEventError emailEventError = new EmailEventError();
-        emailEventError.setCode(code);
-        emailEventError.setDescription(description);
-        emailEventError.setReason(reason);
-        internalEmailEvent.setError(emailEventError);
-        
-        printWebhook(internalEmailEvent);
-        
-        return Response.ok().build();
+        Tropo tropo = new Tropo();
+        tropo.on("continue", "/sleep");
+        tropo.say("transferring to sleep method");
+        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
     
-    @Path("notify/success")
-    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @POST
-    public Response getDeliveredEvent(@FormParam("domain") String domain, @FormParam("event") String event,
-            @FormParam("Message-Id") String messageId, @FormParam("recipient") String recipient, @FormParam("message-headers") String messageHeaders,
-            @FormParam("timestamp") String timestamp, @FormParam("token") String token, @FormParam("signature") String signature)
-            throws EmailEngineException, UnsupportedEncodingException {
+    @Path("servererrortransfer")
+    public Response errorTransfer(String json) throws InterruptedException {
     
-        InternalEmailEvent internalEmailEvent = EmailEventUtils.parseMessageHeaders(messageHeaders);
+        getAndPrintSession(json);
         
-        String apiKey = config.getCredential().get(VENDOR);
+        Tropo tropo = new Tropo();
+        tropo.on("continue", "/servererror");
+        tropo.say("transferring to server error method");
+        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+    }
+    
+    @POST
+    @Path("sleep")
+    public Response sleep(String json) throws InterruptedException {
+    
+        getAndPrintSession(json);
         
-        if (!EmailEventUtils.isSecure(apiKey, timestamp, token, signature)) {
-            return unauthorized();
-        }
+        Thread.sleep(60000);
         
-        internalEmailEvent.setDomain(domain);
-        internalEmailEvent.setEvent(event);
+        Tropo tropo = new Tropo();
+        tropo.say("sleep method");
+        return Response.status(200).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
+    }
+    
+    @POST
+    @Path("servererror")
+    public Response serverError(String json) {
+    
+        getAndPrintSession(json);
         
-        internalEmailEvent.setMessageId(parseMessageId(messageId));
-        
-        internalEmailEvent.setRecipient(recipient);
-        
-        printWebhook(internalEmailEvent);
-        
-        return Response.ok().build();
+        Tropo tropo = new Tropo();
+        tropo.say("serverError method");
+        return Response.status(500).entity(tropo.text()).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON).build();
     }
     
     private TropoSession getAndPrintSession(String json) {
@@ -711,18 +686,7 @@ public class Controller {
         
     }
     
-    private Response unauthorized() {
-    
-        System.out.println("Fail to verify the source of email webhook");
-        return Response.status(401).build();
-    }
-    
-    private String parseMessageId(String messageId) {
-    
-        return messageId.substring(1, messageId.length() - 1);
-    }
-    
-    private void printWebhook(Object obj) {
+    private void printPrettyObject(Object obj) {
     
         System.out.println("////////////////////////////////////");
         System.out.println(TropoUtils.toPrettyString(obj));
@@ -733,4 +697,5 @@ public class Controller {
     
         System.out.println(new Controller().formTransferSampleBody("tel:+19194761199"));
     }
+    
 }

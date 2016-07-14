@@ -44,6 +44,7 @@ public class TropoFilter implements Filter {
     private void printHeaders(HttpServletRequest request) {
     
         System.out.println("*****request dumpHeader*****");
+        System.out.println(request.getRequestURL());
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             
